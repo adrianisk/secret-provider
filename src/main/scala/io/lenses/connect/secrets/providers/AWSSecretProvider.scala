@@ -23,8 +23,22 @@ class AWSSecretProvider() extends ConfigProvider with AWSHelper {
   var client: Option[AWSSecretsManager] = None
   var rootDir: String = ""
 
-  override def get(path: String): ConfigData =
-    new ConfigData(Map.empty[String, String].asJava)
+  // path is expected to be the name of the AWS secret
+  override def get(path: String): ConfigData = {
+
+    client match {
+      case Some(awsClient) =>
+        //aws client caches so we don't need to check here
+        logger.info(s"Looking up value at [$path]")
+        val value = getSecretValue(awsClient, rootDir, path, None)
+        val (expiry, data) = getSecretsAndExpiry(
+          Map("" -> value))
+        logger.info(s"Min expiry for TTL set to [${expiry.toString}]")
+        data
+
+      case None => throw new ConnectException("AWS client is not set.")
+    }
+  }
 
   // path is expected to be the name of the AWS secret
   // keys are expect to be the keys in the payload
@@ -57,7 +71,7 @@ class AWSSecretProvider() extends ConfigProvider with AWSHelper {
       keys: Set[String]): Map[String, (String, Option[OffsetDateTime])] = {
     keys.map { key =>
       logger.info(s"Looking up value at [$path] for key [$key]")
-      val (value, expiry) = getSecretValue(awsClient, rootDir, path, key)
+      val (value, expiry) = getSecretValue(awsClient, rootDir, path, Option(key))
       (key, (value, expiry))
     }.toMap
   }

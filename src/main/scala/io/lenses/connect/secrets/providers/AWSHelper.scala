@@ -90,7 +90,7 @@ trait AWSHelper extends StrictLogging {
       client: AWSSecretsManager,
       rootDir: String,
       secretId: String,
-      key: String
+      key: Option[String]
   ): (String, Option[OffsetDateTime]) = {
 
     // get the secret
@@ -98,34 +98,40 @@ trait AWSHelper extends StrictLogging {
       client.getSecretValue(new GetSecretValueRequest().withSecretId(secretId))
     ) match {
       case Success(secret) =>
-        val value =
-          new ObjectMapper()
+        if(key isEmpty) {
+          (secret.getSecretString, getTTL(client, secretId))
+        }else {
+          val keyVal: String = key.getOrElse(throw new RuntimeException("Can't."))
+          val value = new ObjectMapper()
             .readValue(
               secret.getSecretString,
               classOf[java.util.HashMap[String, String]]
             )
             .asScala
             .getOrElse(
-              key,
+              keyVal,
               throw new ConnectException(
-                s"Failed to look up key [$key] in secret [${secret.getName}]. key not found"
+                s"Failed to look up key [$keyVal] in secret [${secret.getName}]. key not found"
               )
             )
+         
+        
 
         val fileWriter:FileWriter = new FileWriterOnce(Paths.get(rootDir, secretId))
         // decode the value
-        val encodingAndId = EncodingAndId.from(key)
+        val encodingAndId = EncodingAndId.from(keyVal)
         (
           decodeKey(
-            key = key,
+            key = keyVal,
             value = value,
             encoding = encodingAndId.encoding,
             writeFileFn = content=>{
-              fileWriter.write(key.toLowerCase, content, key).toString
+              fileWriter.write(keyVal.toLowerCase, content, keyVal).toString
             }
           ),
           getTTL(client, secretId)
         )
+      }
 
       case Failure(exception) =>
         throw new ConnectException(
